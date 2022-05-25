@@ -27,7 +27,6 @@ public:
     Graph();
     ~Graph();
 
-    //void addEdge(int u, int v, int capacity);
     void writeGraph(std::string fileName);
     void readGraph(std::string fileName);
     void generateGraph(int n, int e, int minC, int maxC);

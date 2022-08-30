@@ -1,12 +1,10 @@
 #include <vector>
-#include <stack>
 #include <queue>
 #include <fstream>
 #include <ctime>
+#include <climits>
 #include <algorithm>
 #include "Graph.h"
-
-#include <iostream>
 
 Graph::Graph () {
 }
@@ -17,7 +15,8 @@ Graph::~Graph () {
 }
 
 void Graph::addEdge (int u, int v, int capacity) {
-// Adds a forward and a back edge.
+// Adds a forward and a reverse edge.
+// Edge: v, flow, capacity, rev_idx.
     Edge eF{v, 0, capacity, adjList[v].size()};
     adjList[u].push_back(eF);
     Edge eB{u, 0, 0, adjList[u].size()};
@@ -31,7 +30,7 @@ void Graph::writeGraph (std::string fileName) {
     graphFile << n << '\n';
     for (int u = 0; u < n; u++) {
         for (auto edge : adjList[u]) {
-            // Back edges have capacity 0.
+            // Reverse edges have capacity 0.
             if (edge.capacity > 0)
                 graphFile << u << ' ' << edge.v << ' ' << edge.capacity << '\n';
         }
@@ -41,7 +40,7 @@ void Graph::writeGraph (std::string fileName) {
 
 void Graph::readGraph (std::string fileName) {
 // Reads from a file of forward edges.
-// Adds both forward and back edges to the Graph.
+// Adds both forward and reverse edges to the Graph.
     std::ifstream graphFile;
     graphFile.open(fileName);
     graphFile >> n;
@@ -57,7 +56,7 @@ void Graph::readGraph (std::string fileName) {
 void Graph::generateGraph (int n, int e, int minC, int maxC) {
 // Generates a random graph with 'n' nodes and 'e' edges.
 // Forward edges have capacity [minC, maxC].
-// Back edges have capacity 0.
+// Reverse edges have capacity 0.
 // adapted from https://stackoverflow.com/a/14618505
 
     this->n = n;
@@ -108,7 +107,7 @@ void Graph::generateGraph (int n, int e, int minC, int maxC) {
         u = v;
     }
     
-    // Add random edges until 'e' is reached.
+    // Add random edges until nEdges == e.
     while (nEdges < e) {
         u = rand() % n;
         v = rand() % n;
@@ -124,19 +123,19 @@ void Graph::generateGraph (int n, int e, int minC, int maxC) {
 bool Graph::assignLevels () {
 // Updates the class array 'level' using BFS.
 // level[node] is the distance from source to node on the shortest s-t path.
-// The s-t paths change as paths are augmented, edges become saturated, and
-//   reverse flows become possible.
+// The resulting BFS tree needs to be updated every round because paths are 
+//   augmented, edges become saturated, and reverse flows become possible.
     for (int i = 0; i < n; i++)
-        level[i] = 0;
+        level[i] = -1;    // unexplored.
     std::queue<int> q;
     q.push(s);
-    level[t] = -1;
+    level[s] = 0;
     int currNode;
     while (!q.empty()) {
         currNode = q.front();
         q.pop();
         for (auto edge : adjList[currNode]) {
-            if ((level[edge.v] == 0 || level[edge.v] == -1) && edge.capacity - edge.flow > 0) {
+            if (level[edge.v] == -1 && edge.capacity - edge.flow > 0) {
                 q.push(edge.v);
                 level[edge.v] = level[currNode] + 1;
             }
@@ -145,11 +144,29 @@ bool Graph::assignLevels () {
     return level[t] == -1 ? false : true;
 }
 
+void Graph::findPaths(int currNode, int* roundFlow, std::vector<int>& path) {
+// Uses DFS to find s-t paths along the level residual graph.
+// When a path is found, it is augmented.
+    if (currNode == t) {
+        *roundFlow += augmentPath(path);
+        return;
+    }
+    for (auto& edge : adjList[currNode]) {
+        if (level[edge.v] == level[currNode] + 1 && edge.capacity - edge.flow > 0) {
+            path.push_back(edge.v);
+            findPaths(edge.v, roundFlow, path);
+            path.pop_back();
+        }
+    }
+}
+
 int Graph::augmentPath (std::vector<int>& path) {
 // Increases the flow on each path edge by the minimum residual capacity on the path.
-    int min, residualCapacity;
+    int min = INT_MAX;
+    int residualCapacity;
     int u, v;
     Edge revEdge;
+    
     // Find minimum residual capacity available on graph.
     for (int i = 0; i < path.size() - 1; i++) {
         u = path[i];
@@ -170,7 +187,7 @@ int Graph::augmentPath (std::vector<int>& path) {
         for (auto& e : adjList[u]) {
             if (e.v == v) {
                 e.flow += min;
-                revEdge = adjList[v][e.rev_idx];
+                revEdge = adjList[e.v][e.rev_idx];
                 revEdge.flow -= min;
                 break;
             }
@@ -179,26 +196,11 @@ int Graph::augmentPath (std::vector<int>& path) {
     return min;
 }
 
-void Graph::findPaths(int currNode, int* roundFlow, std::vector<int>& path) {
-// Uses DFS to find s-t paths along the level residual graph.
-// When a path is found, it is augmented.
-    if (currNode == t) {
-        *roundFlow += augmentPath(path);
-        return;
-    }
-    for (auto& edge : adjList[currNode]) {
-        if (level[edge.v] == level[currNode] + 1 && edge.capacity - edge.flow > 0) {
-            path.push_back(edge.v);
-            findPaths(edge.v, roundFlow, path);
-            path.pop_back();
-        }
-    }
-}
-
 int Graph::dinics (int s, int t) {
 // Implementation based on:
 // https://faculty.cc.gatech.edu/~rpeng/18434_S15/edmondsKarp2.pdf
 // https://faculty.cc.gatech.edu/~rpeng/18434_S15/blockingFlows.pdf
+// https://www.cs.bgu.ac.il/~dinitz/Papers/Dinitz_alg.pdf
     this->s = s;
     this->t = t;
 
